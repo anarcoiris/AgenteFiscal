@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+venv*/
+ENV/
+
+# Local configuration
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# RAG / Database specific
+*.bak
+*.pkl
+*.faiss
+*.index
+rag_cache.*
+intermediate_*.json
+
+# Logs
+*.log
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Project specific
+Charlie_tributario/summaries/*.md
+!Charlie_tributario/summaries/CheatSheet_*.md
+# (Opcional: puedes querer subir las chuletas pero no los parciales)

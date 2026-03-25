@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+playwright
+httpx
+pydantic
+pyautogui
+mss
+pillow

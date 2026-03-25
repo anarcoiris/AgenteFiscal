@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Charlie Agentic Suite — Panel de Control</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #080c14;
+      --surface:  #0e1623;
+      --surface2: #162030;
+      --surface3: #1d2d45;
+      --border:   #1e3050;
+      --border2:  #243a5a;
+      --accent:   #00ff88;
+      --accent2:  #00c4ff;
+      --warn:     #ff6b35;
+      --ask:      #f59e0b;    /* human_ask — amber */
+      --text:     #dde5f0;
+      --muted:    #5a7090;
+      --radius:   10px;
+    }
+
+    body {
+      font-family: 'Space Grotesk', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
+    .spacer   { flex: 1; }
+
+    #ollama-badge {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 12px; border-radius: 99px;
+      background: var(--surface2); border: 1px solid var(--border);
+      font-size: 0.75rem; font-family: 'JetBrains Mono', monospace;
+    }
+
+    #memory-badge {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 99px;
+      background: var(--surface2); border: 1px solid var(--border);
+      font-size: 0.75rem; font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+    }
+    #memory-badge span.count { color: var(--accent2); font-weight: 600; }
+
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+    .dot.online  { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse 2s ease-in-out infinite; }
+    .dot.offline { background: var(--warn); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ── Layout ─────────────────────────────────────────── */
+    .main-layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 290px 1fr;
+      grid-template-rows: 1fr 230px;
+      overflow: hidden;
+      height: calc(100vh - 53px);
+      position: relative;
+    }
+
+    /* ── Control Panel ───────────────────────────────────── */
+    .control-panel {
+      grid-row: 1 / 3;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 20px 16px;
+      display: flex; flex-direction: column; gap: 16px;
+      overflow-y: auto;
+    }
+
+    .panel-title {
+      font-size: 0.65rem; font-weight: 700;
+      letter-spacing: 1.8px; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 4px;
+    }
+
+    .field-group { display: flex; flex-direction: column; gap: 6px; }
+
+    label { font-size: 0.8rem; color: var(--muted); font-weight: 500; }
+
+    select, input[type=text], input[type=number], textarea {
+      width: 100%;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 7px; color: var(--text);
+      padding: 8px 11px; font-size: 0.85rem;
+      font-family: 'Space Grotesk', sans-serif;
+      outline: none; transition: border-color .15s;
+      resize: vertical;
+    }
+    select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+
+    .platform-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .platform-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 7px; padding: 10px 6px; text-align: center;
+      cursor: pointer; font-size: 0.77rem; transition: all .15s; user-select: none;
+    }
+    .platform-card:hover  { border-color: var(--accent2); }
+    .platform-card.active { border-color: var(--accent); background: rgba(0,255,136,.07); color: var(--accent); }
+    .platform-card .icon  { font-size: 1.2rem; display: block; margin-bottom: 3px; }
+    .platform-card.all-card { grid-column: 1 / -1; }
+
+    .preset-row { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
+    .preset-btn {
+      padding: 3px 9px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 5px; font-size: 0.72rem; color: var(--muted);
+      cursor: pointer; transition: all .12s; font-family: 'Space Grotesk', sans-serif;
+    }
+    .preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Toggle row */
+    .toggle-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-radius: 7px;
+      background: var(--surface2); border: 1px solid var(--border);
+    }
+    .toggle-row label { font-size: 0.82rem; color: var(--text); cursor: pointer; flex: 1; margin: 0; }
+    .toggle-row input[type=checkbox] { width: auto; accent-color: var(--accent); cursor: pointer; }
+
+    /* Launch btn */
+    .launch-btn {
+      margin-top: auto; width: 100%; padding: 13px;
+      background: linear-gradient(135deg, #00ff88, #00c4ff);
+      border: none; border-radius: var(--radius);
+      font-size: 0.95rem; font-weight: 700;
+      color: #060c18; cursor: pointer; letter-spacing: 0.3px;
+      transition: all .2s; display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .launch-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,255,136,.25); }
+    .launch-btn:disabled { background: var(--surface2); color: var(--muted); cursor: not-allowed; transform: none; box-shadow: none; }
+    .launch-btn.stop { background: linear-gradient(135deg, var(--warn), #ff4444); }
+
+    /* Stats */
+    .stats-row { display: flex; gap: 6px; }
+    .stat-card  { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 9px; text-align: center; }
+    .stat-num   { font-size: 1.3rem; font-weight: 700; color: var(--accent); }
+    .stat-label { font-size: 0.65rem; color: var(--muted); margin-top: 1px; }
+
+    /* ── Browser Viewer ──────────────────────────────────── */
+    .browser-viewer {
+      position: relative; background: #000;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    #browser-frame {
+      max-width: 90%; max-height: 90%; height: auto;
+      object-fit: contain; border-radius: var(--radius);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      cursor: crosshair; transition: transform 0.15s ease, border-color 0.15s ease;
+      border: 2px solid transparent; margin: auto;
+    }
+    #browser-frame:hover { border-color: var(--accent2); transform: scale(1.02); }
+    .viewer-overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; color: var(--muted); pointer-events: none;
+    }
+    .viewer-overlay.hidden { display: none; }
+    .paw-icon { font-size: 2.8rem; opacity: .25; animation: float 3s ease-in-out infinite; }
+    @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+    .viewer-label { font-size: 0.82rem; font-style: italic; }
+
+    .activity-bar { position: absolute; top: 0; left: 0; right: 0; height: 3px; overflow: hidden; }
+    .activity-bar.running::after {
+      content: ''; display: block; height: 100%;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: slide 1.4s ease-in-out infinite;
+    }
+    @keyframes slide { 0%{transform:translateX(-100%)} 100%{transform:translateX(200%)} }
+
+    /* ── Log Console ─────────────────────────────────────── */
+    .log-console { background: var(--surface); border-top: 1px solid var(--border); display: flex; flex-direction: column; }
+    .log-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 14px; border-bottom: 1px solid var(--border);
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 1.5px;
+      text-transform: uppercase; color: var(--muted); user-select: none;
+    }
+    #log-output {
+      flex: 1; overflow-y: auto; padding: 8px 14px;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.76rem;
+      line-height: 1.65; color: #7a9bbf;
+    }
+    .log-line { animation: fadeIn .15s ease; }
+    .log-line.success { color: var(--accent); }
+    .log-line.error   { color: var(--warn); }
+    .log-line.info    { color: var(--accent2); }
+    .log-line.warn    { color: var(--ask); }
+    .log-line.debug   { color: #445566; font-size: 0.7rem; border-left: 2px solid #223; padding-left: 6px; }
+    .log-line.vision-off { opacity: 0.75; }  /* ⚡ pasos sin imagen */
+    @keyframes fadeIn { from{opacity:0;transform:translateY(3px)} to{opacity:1;transform:translateY(0)} }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+    /* ── Human Ask Panel ─────────────────────────────────── */
+    /* Docked inside the browser-viewer column, bottom-right */
+    #human-panel {
+      position: absolute;
+      bottom: 250px; /* above log console */
+      right: 20px;
+      width: 420px;
+      background: var(--surface2);
+      border: 2px solid var(--ask);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 40px rgba(0,0,0,.6), 0 0 30px rgba(245,158,11,.08);
+      z-index: 200;
+      display: none;
+      animation: askSlide .25s ease-out;
+    }
+    @keyframes askSlide { from{transform:translateY(12px);opacity:0} to{transform:translateY(0);opacity:1} }
+
+    .ask-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; border-bottom: 1px solid rgba(245,158,11,.25);
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+      color: var(--ask);
+    }
+    .ask-header .dot-ask { width:7px;height:7px;border-radius:50%;background:var(--ask);animation:pulse 1s ease-in-out infinite; }
+
+    .ask-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+
+    #ask-question {
+      font-size: 0.88rem; line-height: 1.5; color: var(--text);
+      background: rgba(245,158,11,.06); border-radius: 6px;
+      padding: 8px 10px; border-left: 3px solid var(--ask);
+    }
+    #ask-context {
+      font-size: 0.75rem; color: var(--muted); font-style: italic;
+      display: none;
+    }
+
+    .ask-input-row { display: flex; gap: 8px; }
+    #ask-answer {
+      flex: 1; padding: 8px 10px; font-size: 0.85rem;
+      border-color: var(--ask); min-height: unset; resize: none; height: 38px;
+    }
+    #ask-answer:focus { border-color: var(--ask); }
+
+    .ask-actions { display: flex; gap: 6px; }
+    .ask-send-btn {
+      padding: 7px 16px; background: var(--ask); border: none;
+      border-radius: 6px; font-size: 0.82rem; font-weight: 700;
+      color: #0a0e1a; cursor: pointer; transition: all .15s; font-family: 'Space Grotesk', sans-serif;
+    }
+    .ask-send-btn:hover { background: #fbbf24; }
+    .ask-dismiss-btn {
+      padding: 7px 12px; background: transparent;
+      border: 1px solid var(--border2); border-radius: 6px;
+      font-size: 0.8rem; color: var(--muted); cursor: pointer;
+      transition: all .15s; font-family: 'Space Grotesk', sans-serif;
+    }
+    .ask-dismiss-btn:hover { border-color: var(--warn); color: var(--warn); }
+
+    /* ── Teach Panel (docked sidebar) ───────────────────── */
+    #teach-panel {
+      position: absolute;
+      bottom: 250px;
+      right: 20px;
+      width: 380px;
+      background: var(--surface2);
+      border: 1px solid var(--accent2);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 30px rgba(0,0,0,.5);
+      z-index: 150;
+      display: none;
+      animation: askSlide .2s ease-out;
+    }
+    .teach-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 9px 14px; border-bottom: 1px solid var(--border);
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 1.5px;
+      text-transform: uppercase; color: var(--accent2);
+    }
+    .teach-header button { background:none; border:none; color:var(--muted); cursor:pointer; font-size:0.9rem; }
+    .teach-header button:hover { color:var(--warn); }
+    .teach-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+    .teach-body label { font-size: 0.75rem; color: var(--muted); margin-bottom: 0; }
+    .teach-send-btn {
+      padding: 8px; background: var(--accent2); border: none;
+      border-radius: 6px; font-size: 0.82rem; font-weight: 700;
+      color: #060c18; cursor: pointer; transition: all .15s; font-family: 'Space Grotesk', sans-serif;
+    }
+    .teach-send-btn:hover { opacity: .85; }
+
+    /* ── Floating teach button ───────────────────────────── */
+    #teach-toggle {
+      position: absolute; bottom: 250px; right: 20px;
+      padding: 7px 13px; background: var(--surface2);
+      border: 1px solid var(--accent2); border-radius: 99px;
+      font-size: 0.75rem; color: var(--accent2); cursor: pointer;
+      transition: all .15s; z-index: 100; display: none; /* shown when running */
+      font-family: 'Space Grotesk', sans-serif;
+    }
+    #teach-toggle:hover { background: rgba(0,196,255,.1); }
+    #teach-toggle.hidden-teach { display: none !important; }
+
+    /* Intervention (legacy) */
+    .intervention-msg {
+      position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+      background: var(--surface2); border: 2px solid var(--accent);
+      padding: 12px 20px; border-radius: var(--radius);
+      box-shadow: 0 8px 32px rgba(0,0,0,.5);
+      z-index: 300; display: none; text-align: center; max-width: 80%;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────── -->
+<header>
+  <div>
+    <div class="logo">🐾 Charlie Suite</div>
+    <div class="subtitle">Agente de empleo autónomo · Powered by Ollama</div>
+  </div>
+  <div class="spacer"></div>
+  <div id="memory-badge">💾 Memoria: <span class="count" id="memory-count">—</span></div>
+  <div id="ollama-badge" style="margin-left:8px;">
+    <span class="dot" id="ollama-dot"></span>
+    <span id="ollama-text">Comprobando Ollama...</span>
+  </div>
+</header>
+
+<!-- ── Main Layout ─────────────────────────────────────── -->
+<div class="main-layout">
+
+  <!-- Control Panel -->
+  <aside class="control-panel">
+    <div>
+      <div class="panel-title">Plataforma</div>
+      <div class="platform-grid">
+        <div class="platform-card active" data-platform="linkedin" onclick="selectPlatform(this)"><span class="icon">💼</span>LinkedIn</div>
+        <div class="platform-card" data-platform="tecnoempleo" onclick="selectPlatform(this)"><span class="icon">💻</span>Tecnoempleo</div>
+        <div class="platform-card" data-platform="infojobs" onclick="selectPlatform(this)"><span class="icon">🏢</span>InfoJobs</div>
+        <div class="platform-card all-card" data-platform="all" onclick="selectPlatform(this)"><span class="icon">🚀</span>Cacería Total (todas)</div>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label>Rol / Puesto buscado</label>
+      <select id="role-input">
+        <option>Administrador de Sistemas</option>
+        <option>Administrador de Bases de Datos</option>
+        <option>Data Scientist</option>
+        <option>Data Engineer</option>
+        <option>Full Stack Developer</option>
+        <option>Software Architect</option>
+        <option>Prompt Engineer</option>
+        <option>AI Engineer</option>
+        <option>IA Generativa</option>
+      </select>
+    </div>
+
+    <div class="field-group">
+      <label>Cerebro de Charlie (Modelo)</label>
+      <div style="display:flex;gap:6px;">
+        <select id="model-input" style="flex:1;" onchange="handleModelChange(this.value)">
+          <option value="qwen2.5vl:3b">👁️ Qwen2.5-VL 3B</option>
+          <option value="qwen2.5:3b">⚡ Qwen2.5 3B (sin visión)</option>
+          <option value="deepseek-r1:8b">🧠 DeepSeek-R1 8B</option>
+          <option value="custom">✍️ Otro...</option>
+        </select>
+        <input type="text" id="model-custom" placeholder="modelo:tag" style="display:none;flex:1;" />
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label>Expectativa salarial (€ brutos/año)</label>
+      <input type="number" id="salary-input" value="26000" step="500" />
+      <div class="preset-row">
+        <button class="preset-btn" onclick="setSalary(26000)">26k SysAdmin</button>
+        <button class="preset-btn" onclick="setSalary(28000)">28k FullStack</button>
+        <button class="preset-btn" onclick="setSalary(30000)">30k Data/IA</button>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <div class="panel-title">Opciones</div>
+      <div class="toggle-row">
+        <input type="checkbox" id="planner-toggle" checked />
+        <label for="planner-toggle">🧠 Plan-and-Act (Planificador + Ejecutor)</label>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="debug-mode" onchange="toggleDebugView(this.checked)" />
+        <label for="debug-mode">🔬 Ver logs internos (RAW LLM)</label>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <div class="panel-title">Pruebas rápidas</div>
+      <div class="preset-row">
+        <button class="preset-btn" onclick="setTestTask('google_test')">🔍 Google Test</button>
+        <button class="preset-btn" onclick="setTestTask('Navega a google.com y busca Python')">🐍 Google Python</button>
+        <button class="preset-btn" onclick="setTestTask('Navega a https://www.linkedin.com/feed/ y comprueba si ves tu foto de perfil')">👤 Check Perfil</button>
+      </div>
+      <textarea id="task-override-input" placeholder="Tarea personalizada (opcional)..."
+        style="min-height:56px;margin-top:6px;font-size:0.8rem;"></textarea>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-num" id="stat-sent">0</div>
+        <div class="stat-label">Enviadas</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" style="color:var(--warn)" id="stat-errors">0</div>
+        <div class="stat-label">Errores</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" style="color:var(--ask)" id="stat-asks">0</div>
+        <div class="stat-label">Preguntas</div>
+      </div>
+    </div>
+
+    <button class="launch-btn" id="launch-btn" onclick="toggleLaunch()">
+      <span id="launch-icon">▶</span>
+      <span id="launch-text">Lanzar a Charlie</span>
+    </button>
+  </aside>
+
+  <!-- Browser Viewer -->
+  <div class="browser-viewer" id="viewer">
+    <div class="activity-bar" id="activity-bar"></div>
+    <img id="browser-frame" src="" alt="" style="display:none;" />
+    <div class="viewer-overlay" id="viewer-overlay">
+      <span class="paw-icon">🐾</span>
+      <span class="viewer-label">El navegador de Charlie aparecerá aquí en tiempo real</span>
+    </div>
+  </div>
+
+  <!-- Log Console -->
+  <div class="log-console">
+    <div class="log-header">
+      <span class="dot online"></span>
+      CONSOLA
+      <span style="margin-left:auto;font-weight:400;cursor:pointer;letter-spacing:0" onclick="clearLog()">limpiar</span>
+    </div>
+    <div id="log-output"></div>
+  </div>
+
+  <!-- ── Human Ask Panel ───────────────────────────────── -->
+  <div id="human-panel">
+    <div class="ask-header">
+      <span class="dot-ask"></span>
+      🙋 Charlie tiene una pregunta
+    </div>
+    <div class="ask-body">
+      <div id="ask-question"></div>
+      <div id="ask-context"></div>
+      <div class="ask-input-row">
+        <textarea id="ask-answer" placeholder="Tu respuesta..." rows="1"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAnswer();}"></textarea>
+      </div>
+      <div class="ask-actions">
+        <button class="ask-send-btn" onclick="sendAnswer()">Responder ↩</button>
+        <button class="ask-dismiss-btn" onclick="dismissAsk()">Saltar / No sé</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Teach Panel ───────────────────────────────────── -->
+  <div id="teach-panel">
+    <div class="teach-header">
+      💾 Enseñar a Charlie
+      <button onclick="hideTeach()">✕</button>
+    </div>
+    <div class="teach-body">
+      <label>Categoría (ej: linkedin, google, general)</label>
+      <input type="text" id="teach-cat" placeholder="linkedin" value="general" />
+      <label>Clave (ej: boton_apply, campo_salario)</label>
+      <input type="text" id="teach-key" placeholder="selector_de_algo" />
+      <label>Valor (ej: button[aria-label*='Easy Apply'])</label>
+      <input type="text" id="teach-val" placeholder="valor a recordar" />
+      <button class="teach-send-btn" onclick="sendTeach()">💾 Guardar en memoria</button>
+    </div>
+  </div>
+
+  <!-- Teach toggle button (visible durante sesión) -->
+  <button id="teach-toggle" onclick="toggleTeach()">💾 Enseñar</button>
+
+  <!-- Legacy intervention panel -->
+  <div id="intervention-panel" class="intervention-msg">
+    <div style="font-weight:700;color:var(--accent);margin-bottom:4px;">🎯 ¡Charlie necesita ayuda!</div>
+    <div id="intervention-text" style="font-size:0.88rem;margin-bottom:10px;"></div>
+    <button class="preset-btn" style="border-color:var(--accent);color:var(--accent);" onclick="dismissIntervention()">Hecho / Continuar</button>
+  </div>
+
+</div><!-- /main-layout -->
+
+<script>
+  // ── State ──────────────────────────────────────────────
+  let ws            = null;
+  let running       = false;
+  let selectedPlatform = 'linkedin';
+  let statSent      = parseInt(localStorage.getItem('charlie_stat_sent'))   || 0;
+  let statErrors    = parseInt(localStorage.getItem('charlie_stat_errors')) || 0;
+  let statAsks      = 0;
+  let teachVisible  = false;
+
+  window.onload = () => {
+    document.getElementById('stat-sent').textContent   = statSent;
+    document.getElementById('stat-errors').textContent = statErrors;
+    checkOllama();
+    setInterval(checkOllama, 15000);
+  };
+
+  // ── Ollama / Memory Status ─────────────────────────────
+  async function checkOllama() {
+    try {
+      const res  = await fetch('/api/status');
+      const data = await res.json();
+      const dot  = document.getElementById('ollama-dot');
+      const txt  = document.getElementById('ollama-text');
+      if (data.ollama === 'online') {
+        dot.className = 'dot online';
+        const warn = data.model_present ? '' : ' ⚠️';
+        txt.textContent = `Ollama · ${data.model}${warn}`;
+      } else {
+        dot.className = 'dot offline';
+        txt.textContent = 'Ollama offline';
+      }
+      if (data.memory) {
+        document.getElementById('memory-count').textContent =
+          `${data.memory.total_entradas} entradas`;
+      }
+    } catch {
+      document.getElementById('ollama-dot').className = 'dot offline';
+      document.getElementById('ollama-text').textContent = 'Sin conexión backend';
+    }
+  }
+
+  // ── Platform ───────────────────────────────────────────
+  function selectPlatform(el) {
+    document.querySelectorAll('.platform-card').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    selectedPlatform = el.dataset.platform;
+  }
+
+  // ── Helpers ────────────────────────────────────────────
+  function setSalary(v)    { document.getElementById('salary-input').value = v; }
+  function setTestTask(t)  { document.getElementById('task-override-input').value = t; }
+  function clearLog()      { document.getElementById('log-output').innerHTML = ''; }
+  function handleModelChange(val) {
+    document.getElementById('model-custom').style.display = (val === 'custom') ? 'block' : 'none';
+  }
+
+  // ── Log ────────────────────────────────────────────────
+  function appendLog(msg, cls = '') {
+    const out = document.getElementById('log-output');
+    const ts  = new Date().toLocaleTimeString('es-ES', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const line = document.createElement('div');
+    line.className = `log-line ${cls}`;
+
+    // Visión lazy marker styling
+    if (msg.includes('⚡')) line.classList.add('vision-off');
+
+    if (cls === 'debug') {
+      line.style.display = document.getElementById('debug-mode').checked ? 'block' : 'none';
+    }
+
+    line.textContent = `[${ts}] ${msg}`;
+    out.appendChild(line);
+    out.scrollTop = out.scrollHeight;
+  }
+
+  function toggleDebugView(checked) {
+    document.querySelectorAll('.log-line.debug').forEach(el => {
+      el.style.display = checked ? 'block' : 'none';
+    });
+  }
+
+  // ── Running State ──────────────────────────────────────
+  function setRunningState(isRunning) {
+    running = isRunning;
+    const btn  = document.getElementById('launch-btn');
+    const icon = document.getElementById('launch-icon');
+    const txt  = document.getElementById('launch-text');
+    const bar  = document.getElementById('activity-bar');
+    const tog  = document.getElementById('teach-toggle');
+    if (isRunning) {
+      btn.classList.add('stop'); icon.textContent = '⏹'; txt.textContent = 'Detener a Charlie';
+      bar.classList.add('running');
+      tog.style.display = 'block';
+    } else {
+      btn.classList.remove('stop'); icon.textContent = '▶'; txt.textContent = 'Lanzar a Charlie';
+      bar.classList.remove('running');
+      tog.style.display = 'none';
+      hideTeach();
+    }
+  }
+
+  function toggleLaunch() { running ? stopBot() : launchBot(); }
+
+  // ── Launch ─────────────────────────────────────────────
+  function launchBot() {
+    const role         = document.getElementById('role-input').value;
+    const modelSelect  = document.getElementById('model-input').value;
+    const modelCustom  = document.getElementById('model-custom').value.trim();
+    const model        = (modelSelect === 'custom' && modelCustom) ? modelCustom : modelSelect;
+    const task_override = document.getElementById('task-override-input').value.trim() || undefined;
+    const salary       = document.getElementById('salary-input').value;
+    const use_planner  = document.getElementById('planner-toggle').checked;
+    const proto        = location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl        = `${proto}://${location.host}/ws`;
+
+    const platforms = selectedPlatform === 'all'
+      ? ['tecnoempleo', 'infojobs', 'linkedin']
+      : [selectedPlatform];
+
+    setRunningState(true);
+    statAsks = 0;
+    runSequential(platforms, 0, wsUrl, { role, model, salary, task_override, use_planner });
+  }
+
+  function runSequential(platforms, index, wsUrl, cfg) {
+    if (index >= platforms.length) {
+      appendLog('✅ Cacería total completada.', 'success');
+      setRunningState(false);
+      return;
+    }
+
+    const platform = platforms[index];
+    appendLog(`🚀 [${index+1}/${platforms.length}] Iniciando en ${platform}...`, 'info');
+
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ ...cfg, platform }));
+      document.getElementById('viewer-overlay').classList.add('hidden');
+    };
+
+    ws.onmessage = (evt) => {
+      const msg = JSON.parse(evt.data);
+
+      if (msg.type === 'ping') return;
+
+      if (msg.type === 'screenshot') {
+        const img = document.getElementById('browser-frame');
+        img.src = `data:image/jpeg;base64,${msg.data}`;
+        img.style.display = 'block';
+        return;
+      }
+
+      if (msg.type === 'log' || msg.type === 'debug') {
+        const d   = msg.data;
+        const cls = msg.type === 'debug' ? 'debug'
+          : d.startsWith('✅') ? 'success'
+          : d.startsWith('❌') || d.startsWith('🛑') ? 'error'
+          : d.startsWith('⚠️') ? 'warn'
+          : d.startsWith('🤖') || d.startsWith('🌐') || d.startsWith('📋') ? 'info'
+          : d.startsWith('🙋') ? 'warn'
+          : '';
+        appendLog(d, cls);
+        return;
+      }
+
+      if (msg.type === 'action') {
+        const d = msg.data;
+        const icons = { navigate:'🔗', click:'👆', fill:'✍️', type:'⌨️', wait:'⏳', done:'✅', error:'❌', human_intervention:'🎯', human_ask:'🙋' };
+        const icon = icons[d.type] || '⚙️';
+        let text = `${icon} Charlie → ${d.type}`;
+        if (d.url)      text += ' ' + d.url;
+        if (d.selector) text += ' [' + d.selector + ']';
+        if (d.value)    text += ' = "' + d.value + '"';
+        if (d.desc)     text += ' (' + d.desc + ')';
+        appendLog(text, d.type === 'error' ? 'error' : 'info');
+
+        if (d.type === 'human_intervention') {
+          document.getElementById('intervention-text').textContent = d.reason || 'Realiza la acción necesaria en el navegador.';
+          document.getElementById('intervention-panel').style.display = 'block';
+        }
+        return;
+      }
+
+      // ── teach_suggestion: Backend returns element at (x,y) ──
+      if (msg.type === 'teach_suggestion') {
+        const d = msg.data;
+        document.getElementById('teach-cat').value = selectedPlatform || 'general';
+        const rawText = d.text ? d.text.toLowerCase().replace(/[^a-z0-9]/g, '_') : d.tag;
+        document.getElementById('teach-key').value = `elem_${rawText.substring(0, 15)}`;
+        document.getElementById('teach-val').value = d.selector;
+        
+        teachVisible = true;
+        document.getElementById('teach-panel').style.display = 'block';
+        appendLog(`💡 Elemento detectado: ${d.selector}`, 'success');
+        return;
+      }
+
+      // ── human_ask: Charlie hace una pregunta al usuario ──
+      if (msg.type === 'human_ask') {
+        const d = msg.data;
+        statAsks++;
+        document.getElementById('stat-asks').textContent = statAsks;
+
+        document.getElementById('ask-question').textContent = d.question || '¿Qué debo hacer?';
+        const ctx = document.getElementById('ask-context');
+        if (d.context) { ctx.textContent = d.context; ctx.style.display = 'block'; }
+        else { ctx.style.display = 'none'; }
+        document.getElementById('ask-answer').value = '';
+        document.getElementById('human-panel').style.display = 'block';
+        document.getElementById('ask-answer').focus();
+        appendLog(`🙋 Charlie pregunta: ${d.question}`, 'warn');
+        return;
+      }
+
+      if (msg.type === 'result') {
+        const d = msg.data;
+        appendLog(`📋 Resultado: ${d.company} → ${d.job_url}`, 'success');
+        return;
+      }
+
+      if (msg.type === 'status') {
+        if (msg.data === 'done') {
+          statSent++;
+          localStorage.setItem('charlie_stat_sent', statSent);
+          document.getElementById('stat-sent').textContent = statSent;
+          appendLog(`✅ Plataforma ${platform} completada.`, 'success');
+          ws.close();
+          checkOllama(); // refresh memory count
+          // FIX: run next platform AFTER this one closes
+        } else if (msg.data === 'error') {
+          statErrors++;
+          localStorage.setItem('charlie_stat_errors', statErrors);
+          document.getElementById('stat-errors').textContent = statErrors;
+          appendLog(`❌ Plataforma ${platform} falló.`, 'error');
+          ws.close();
+        } else if (msg.data === 'running') {
+          // noop
+        }
+      }
+    };
+
+    // FIX: single onclose — sequences platforms here, not in onmessage
+    ws.onclose = () => {
+      dismissAsk();
+      dismissIntervention();
+      if (running) {
+        // Move to next platform
+        setTimeout(() => runSequential(platforms, index + 1, wsUrl, cfg), 400);
+      } else {
+        appendLog('Sesión WebSocket cerrada.', '');
+        document.getElementById('viewer-overlay').classList.remove('hidden');
+        document.getElementById('browser-frame').style.display = 'none';
+        setRunningState(false);
+      }
+    };
+
+    ws.onerror = () => {
+      appendLog('Error de WebSocket. ¿Está corriendo charlie_dashboard.py?', 'error');
+      setRunningState(false);
+    };
+  }
+
+  // ── Stop ───────────────────────────────────────────────
+  function stopBot() {
+    running = false; // Set first so onclose doesn't advance
+    if (ws) { ws.close(); ws = null; }
+    setRunningState(false);
+    appendLog('Agente detenido manualmente.', 'error');
+    document.getElementById('viewer-overlay').classList.remove('hidden');
+    document.getElementById('browser-frame').style.display = 'none';
+    dismissAsk();
+    dismissIntervention();
+  }
+
+  // ── Human Ask ──────────────────────────────────────────
+  function sendAnswer() {
+    const answer = document.getElementById('ask-answer').value.trim();
+    if (!answer) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'answer', data: answer }));
+      appendLog(`💬 Tú → "${answer}"`, 'success');
+    }
+    dismissAsk();
+  }
+
+  function dismissAsk() {
+    document.getElementById('human-panel').style.display = 'none';
+    document.getElementById('ask-answer').value = '';
+  }
+
+  // ── Teach ──────────────────────────────────────────────
+  function toggleTeach() {
+    teachVisible = !teachVisible;
+    document.getElementById('teach-panel').style.display = teachVisible ? 'block' : 'none';
+    // If human_ask is open, offset teach panel
+    if (teachVisible && document.getElementById('human-panel').style.display === 'block') {
+      document.getElementById('teach-panel').style.bottom = '560px';
+    } else {
+      document.getElementById('teach-panel').style.bottom = '250px';
+    }
+  }
+
+  function hideTeach() {
+    teachVisible = false;
+    document.getElementById('teach-panel').style.display = 'none';
+  }
+
+  function sendTeach() {
+    const cat = document.getElementById('teach-cat').value.trim() || 'general';
+    const key = document.getElementById('teach-key').value.trim();
+    const val = document.getElementById('teach-val').value.trim();
+    if (!key || !val) { appendLog('⚠️ Falta clave o valor para enseñar.', 'warn'); return; }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'teach', category: cat, key, value: val }));
+    }
+    document.getElementById('teach-key').value = '';
+    document.getElementById('teach-val').value = '';
+    hideTeach();
+  }
+
+  // ── Interactive Teach Click ────────────────────────────
+  document.getElementById('browser-frame').addEventListener('click', function(e) {
+    if (!running || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const rect = this.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // El tamaño real de renderizado del browser original (CharlieBrowser usa 1280x720)
+    const scaleX = 1280 / rect.width;
+    const scaleY = 720 / rect.height;
+    
+    const realX = Math.round(x * scaleX);
+    const realY = Math.round(y * scaleY);
+    
+    appendLog(`🖱️ Clic UI: consultando coords (${realX}, ${realY})...`, 'info');
+    ws.send(JSON.stringify({ type: 'teach_click', data: { x: realX, y: realY } }));
+  });
+
+  // ── Intervention (legacy) ──────────────────────────────
+  function dismissIntervention() {
+    document.getElementById('intervention-panel').style.display = 'none';
+  }
+</script>
+</body>
+</html>

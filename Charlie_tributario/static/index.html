@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-width=1.0">
+    <title>Charlie Tributario AI</title>
+    <!-- Usar Markdown Parser ligero -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="static/styles.css">
+    <!-- Fuente moderna -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- Overlay de carga/Drag&Drop -->
+    <div id="drop-overlay" class="hidden">
+        <div class="drop-message">
+            <svg width="48" height="48" fill="none" class="drop-icon" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+            </svg>
+            <p>Suelta tu captura de pantalla aquí para que Charlie la lea...</p>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="branding">
+                <span class="logo-emoji">🤖</span>
+                <h1>Charlie Tributario</h1>
+            </div>
+            <div class="controls">
+                <span id="confidence-badge" class="badge">N/A</span>
+                <span class="settings-btn" id="settings-toggle">⚙️ Settings</span>
+                <span class="settings-btn" id="clear-btn">🗑️ Limpiar</span>
+            </div>
+        </header>
+
+        <!-- Settings Panel -->
+        <div id="settings-panel" class="settings-panel hidden">
+            <label for="model-select">Modelo Local (Ollama):</label>
+            <select id="model-select">
+                <option value="qwen2.5:3b">qwen2.5:3b (Rápido)</option>
+                <option value="llama3.2:3b">llama3.2:3b</option>
+                <option value="qwen2.5vl:3b">qwen2.5vl (Visión)</option>
+            </select>
+        </div>
+
+        <!-- Ventana de Chat -->
+        <div class="chat-window" id="chat-window">
+            <div class="message charlie">
+                <div class="bubble">¡Hola! Soy Charlie, tu asistente tributario personal. Pregúntame sobre impuestos o pega/arrastra una captura de pantalla para que la lea (Ctrl+V).</div>
+            </div>
+        </div>
+
+        <!-- Input Box -->
+        <div class="input-container">
+            <textarea id="chat-input" placeholder="Pregunta sobre impuestos, deducciones, o PEGA (Ctrl+V) una captura fiscal..."></textarea>
+            <button id="send-btn">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <script src="static/app.js"></script>
+</body>
+</html>
