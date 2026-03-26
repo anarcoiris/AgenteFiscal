@@ -15,7 +15,8 @@ import os
 import re
 import hashlib
 import pickle
-import shelve
+import sqlite3
+import json
 import threading
 import uuid
 import faiss
@@ -67,7 +68,7 @@ class RAGEngine:
         self,
         index_path="faiss_index.bin",
         chunks_path="chunks.pkl",
-        cache_path="rag_cache",
+        cache_path="rag_cache.db",
         embedding_model="BAAI/bge-m3",
         ollama_url="http://localhost:11434",
         llm_model="qwen2.5:3b",
@@ -94,6 +95,23 @@ class RAGEngine:
         # Almacén de contrastes asíncronos: { contrast_id: { status, local_answer, discrepancy, ... } }
         self._contrasts = {}
         self._contrast_lock = threading.Lock()
+
+        self._init_db()
+
+    def _init_db(self):
+        try:
+            with sqlite3.connect(self.cache_path) as conn:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS cache (
+                        id TEXT PRIMARY KEY,
+                        question TEXT,
+                        response_json TEXT,
+                        quality TEXT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+        except Exception as e:
+            self._status(f"⚠️ Error init db: {e}")
 
     # ── Status callback ─────────────────────────────────────────────────────
     def _status(self, msg: str):
@@ -151,13 +169,20 @@ class RAGEngine:
         if not self._loaded:
             self.load()
 
-        # 1. Comprobar caché (skip si quality == bad)
+        # 1. Comprobar caché
         cache_key = self._cache_key(question)
         cached = self._cache_get(cache_key)
+        
+        had_bad_previous = False
         if cached:
-            self._status("⚡ Respuesta desde caché")
-            cached["cached"] = True
-            return cached
+            if cached.get("quality") == "bad":
+                self._status("⚠️ Regenerando respuesta (feedback previo fue malo)...")
+                had_bad_previous = True
+            else:
+                self._status("⚡ Respuesta desde caché")
+                cached["cached"] = True
+                cached["interaction_id"] = cache_key
+                return cached
 
         # 2. Buscar contexto
         self._status("Buscando contexto relevante...")
@@ -190,8 +215,8 @@ class RAGEngine:
         else:
             confidence = "baja"
 
-        # 4. Construir prompt con historial
-        prompt = self._build_prompt(question, context_parts)
+        # 4. Construir prompt con historial y self-correction
+        prompt = self._build_prompt(question, context_parts, had_bad_previous)
 
         # 5. Generar respuesta según motor seleccionado
         self._status(f"Generando respuesta (confianza: {confidence})...")
@@ -221,7 +246,8 @@ class RAGEngine:
             "cached": False,
             "model_used": model_used,
             "contrast_id": contrast_id,
-            "error": None
+            "error": None,
+            "interaction_id": cache_key
         }
 
         # Debug: incluir chunks recuperados
@@ -229,7 +255,7 @@ class RAGEngine:
             result["debug_chunks"] = context_parts
 
         # 7. Guardar en caché (quality=None = sin evaluar)
-        self._cache_set(cache_key, result)
+        self._cache_set(cache_key, result, question)
 
         # 8. Actualizar historial
         self._history.append({"q": question, "a": answer[:200]})
@@ -265,7 +291,7 @@ class RAGEngine:
             return f"[Error OCR: {e}]"
 
     # ── Prompt builder ──────────────────────────────────────────────────────
-    def _build_prompt(self, question: str, context_parts: list) -> str:
+    def _build_prompt(self, question: str, context_parts: list, had_bad_previous: bool = False) -> str:
         context_text = "\n\n".join(context_parts)
 
         # Incluir historial si hay
@@ -276,6 +302,10 @@ class RAGEngine:
                 history_lines.append(f"  P: {h['q']}\n  R: {h['a']}")
             history_text = f"\nHistorial de conversación reciente:\n" + "\n".join(history_lines) + "\n"
 
+        correction_text = ""
+        if had_bad_previous:
+            correction_text = "\nATENCIÓN: La respuesta anterior generada a esta pregunta fue marcada como INCORRECTA o INCOMPLETA por el usuario. Por favor, reevalúa tu razonamiento cuidadosamente, sé más exhaustivo, revisa si aplicaste mal alguna norma o si pasaste por alto algún detalle crítico en el contexto.\n"
+
         return f"""Eres un asesor fiscal experto. Basa tu respuesta en el contexto proporcionado.
 
 REGLAS:
@@ -285,7 +315,7 @@ REGLAS:
 4. Analiza paso a paso cada opción o punto de la pregunta basándote estrictamente en el texto antes de dar una conclusión final.
 5. Responde en español usando el Euro (€).
 6. Sé preciso y directo.
-{history_text}
+{correction_text}{history_text}
 CONTEXTO:
 {context_text}
 
@@ -460,65 +490,67 @@ PREGUNTA:
 
     def _cache_get(self, key: str) -> dict | None:
         try:
-            with shelve.open(self.cache_path, 'r') as db:
-                entry = db.get(key)
-                if entry and entry.get("quality") == "bad":
-                    return None  # No servir respuestas flaggeadas como malas
-                return entry
+            with sqlite3.connect(self.cache_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute("SELECT * FROM cache WHERE id = ?", (key,)).fetchone()
+                if row:
+                    entry = json.loads(row['response_json'])
+                    entry['quality'] = row['quality']
+                    entry['question'] = row['question']
+                    return entry
         except Exception:
-            return None
+            pass
+        return None
 
-    def _cache_set(self, key: str, value: dict):
+    def _cache_set(self, key: str, value: dict, question: str):
         try:
-            # Preservar quality si ya existía una evaluación
-            existing_quality = None
-            try:
-                with shelve.open(self.cache_path, 'r') as db:
-                    existing = db.get(key)
-                    if existing:
-                        existing_quality = existing.get("quality")
-            except Exception:
-                pass
-
-            value["quality"] = existing_quality  # None = sin evaluar
-            with shelve.open(self.cache_path) as db:
-                db[key] = value
+            with sqlite3.connect(self.cache_path) as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO cache (id, question, response_json, quality) VALUES (?, ?, ?, ?)",
+                    (key, question, json.dumps(value, ensure_ascii=False), None)
+                )
         except Exception as e:
             self._status(f"⚠️ Error guardando caché: {e}")
 
-    def flag_cache(self, question: str, quality: str) -> bool:
+    def flag_cache(self, interaction_id: str, quality: str) -> bool:
         """
         Marca una respuesta en caché como 'good' o 'bad'.
-        quality: 'good' | 'bad' | None (reset)
         """
-        cache_key = self._cache_key(question)
         try:
-            with shelve.open(self.cache_path) as db:
-                entry = db.get(cache_key)
-                if entry:
-                    entry["quality"] = quality
-                    db[cache_key] = entry
-                    self._status(f"Cache entry flagged as '{quality}'")
-                    return True
-            return False
+            with sqlite3.connect(self.cache_path) as conn:
+                conn.row_factory = sqlite3.Row
+                conn.execute("UPDATE cache SET quality = ? WHERE id = ?", (quality, interaction_id))
+                
+                if quality == "good":
+                    row = conn.execute("SELECT question, response_json FROM cache WHERE id = ?", (interaction_id,)).fetchone()
+                    if row:
+                        resp = json.loads(row["response_json"])
+                        with open("good_interactions.jsonl", "a", encoding="utf-8") as f:
+                            f.write(json.dumps({
+                                "question": row["question"],
+                                "answer": resp.get("answer", "")
+                            }, ensure_ascii=False) + "\n")
+            
+            self._status(f"Interaction flagged as '{quality}'")
+            return True
         except Exception as e:
-            self._status(f"⚠️ Error flagging cache: {e}")
+            self._status(f"⚠️ Error flagging interaction: {e}")
             return False
 
     def get_cache_stats(self) -> dict:
         """Estadísticas de la caché."""
         stats = {"total": 0, "good": 0, "bad": 0, "unrated": 0}
         try:
-            with shelve.open(self.cache_path, 'r') as db:
-                for key in db:
-                    stats["total"] += 1
-                    q = db[key].get("quality")
-                    if q == "good":
-                        stats["good"] += 1
-                    elif q == "bad":
-                        stats["bad"] += 1
-                    else:
-                        stats["unrated"] += 1
+            with sqlite3.connect(self.cache_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute("SELECT quality, COUNT(*) as cnt FROM cache GROUP BY quality").fetchall()
+                for r in rows:
+                    q = r['quality']
+                    c = r['cnt']
+                    stats["total"] += c
+                    if q == "good": stats["good"] += c
+                    elif q == "bad": stats["bad"] += c
+                    else: stats["unrated"] += c
         except Exception:
             pass
         return stats
@@ -527,11 +559,9 @@ PREGUNTA:
         """Elimina solo las entradas marcadas como malas. Retorna nro eliminadas."""
         removed = 0
         try:
-            with shelve.open(self.cache_path) as db:
-                bad_keys = [k for k in db if db[k].get("quality") == "bad"]
-                for k in bad_keys:
-                    del db[k]
-                    removed += 1
+            with sqlite3.connect(self.cache_path) as conn:
+                cursor = conn.execute("DELETE FROM cache WHERE quality = 'bad'")
+                removed = cursor.rowcount
             self._status(f"🗑️ {removed} respuestas malas eliminadas")
         except Exception:
             pass
@@ -540,8 +570,8 @@ PREGUNTA:
     def clear_cache(self):
         """Limpia toda la caché de respuestas."""
         try:
-            with shelve.open(self.cache_path) as db:
-                db.clear()
+            with sqlite3.connect(self.cache_path) as conn:
+                conn.execute("DELETE FROM cache")
             self._status("🗑️ Caché limpiada")
         except Exception:
             pass

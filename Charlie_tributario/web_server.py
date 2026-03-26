@@ -42,7 +42,7 @@ class ChatRequest(BaseModel):
 
 
 class FeedbackRequest(BaseModel):
-    question: str
+    interaction_id: str
     quality: str  # "good" | "bad"
 
 
@@ -92,6 +92,7 @@ async def chat(request: ChatRequest):
             "contrast_id": contrast_id,
             "elapsed_seconds": elapsed,
             "cached": response.get("cached", False),
+            "interaction_id": response.get("interaction_id"),
         })
     except Exception as e:
         print(f"Error en chat: {e}")
@@ -119,7 +120,7 @@ async def feedback(request: FeedbackRequest):
     if request.quality not in ("good", "bad"):
         return JSONResponse(status_code=400, content={"success": False, "error": "quality must be 'good' or 'bad'"})
 
-    ok = engine.flag_cache(request.question, request.quality)
+    ok = engine.flag_cache(request.interaction_id, request.quality)
     return {"success": ok}
 
 

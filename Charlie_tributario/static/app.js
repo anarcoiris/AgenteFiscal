@@ -203,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const cachedTag = data.cached ? '<span class="cached-tag">⚡ CACHÉ</span>' : '';
         const copyId = 'copy-' + Date.now();
         const fbId = 'fb-' + Date.now();
-        const escapedQ = escapeHtml(question).replace(/"/g, '&quot;');
+        const interactionId = data.interaction_id || '';
 
         return `
         <div class="response-meta">
@@ -211,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <span>${elapsed}</span>
             ${cachedTag}
             <button class="copy-btn" id="${copyId}" title="Copiar respuesta">📋 Copiar</button>
-            <span class="feedback-buttons" id="${fbId}" data-question="${escapedQ}">
+            <span class="feedback-buttons" id="${fbId}" data-id="${interactionId}">
                 <button class="fb-btn fb-good" data-quality="good" title="Buena respuesta">👍</button>
                 <button class="fb-btn fb-bad" data-quality="bad" title="Mala respuesta">👎</button>
             </span>
@@ -309,14 +309,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target.classList.contains('fb-btn')) {
             const quality = e.target.dataset.quality;
             const container = e.target.closest('.feedback-buttons');
-            const question = container?.dataset.question;
+            const interaction_id = container?.dataset.id;
 
-            if (question) {
+            if (interaction_id) {
                 try {
                     await fetch('/api/feedback', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ question, quality })
+                        body: JSON.stringify({ interaction_id, quality })
                     });
 
                     // Feedback visual
