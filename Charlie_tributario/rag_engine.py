@@ -1,19 +1,23 @@
 """
 rag_engine.py — Motor RAG reutilizable para el proyecto tributario.
 
-v2 — Mejoras:
+v3 — Mejoras:
+  - GPT-4.1 como motor primario (OpenAI) con local Ollama como contraste asíncrono
+  - Caché con retroalimentación de calidad (good/bad) — las malas no se sirven
+  - Contraste local: detecta discrepancias entre OpenAI y modelo local
   - Embedding multilingüe (BAAI/bge-m3) para español
-  - Caché de respuestas (shelve) para evitar re-consultas
   - Indicador de confianza basado en distancia FAISS
   - Timeout Ollama extendido a 300s para DeepSeek R1
-  - Fallback OpenAI actualizado a gpt-4.1-mini
   - OCR vía pytesseract (CPU, sin VRAM)
   - Metadata de páginas en las fuentes
 """
 import os
+import re
 import hashlib
 import pickle
 import shelve
+import threading
+import uuid
 import faiss
 import requests
 import numpy as np
@@ -57,7 +61,7 @@ CONFIDENCE_MEDIUM = 2.0   # distancia media < 2.0 → confianza media
 
 
 class RAGEngine:
-    """Motor RAG local: FAISS + DeepSeek (Ollama) con fallback OpenAI."""
+    """Motor RAG: GPT-4.1 (OpenAI) primario + Ollama local como contraste asíncrono."""
 
     def __init__(
         self,
@@ -67,6 +71,7 @@ class RAGEngine:
         embedding_model="BAAI/bge-m3",
         ollama_url="http://localhost:11434",
         llm_model="qwen2.5:3b",
+        openai_model="gpt-4.1",
         top_k=7,
         on_status=None,
     ):
@@ -76,6 +81,7 @@ class RAGEngine:
         self.embedding_model_name = embedding_model
         self.ollama_url = ollama_url
         self.llm_model = llm_model
+        self.openai_model = openai_model
         self.top_k = top_k
         self._on_status = on_status
 
@@ -84,6 +90,10 @@ class RAGEngine:
         self._chunks = None
         self._loaded = False
         self._history = []  # Últimas N interacciones para contexto conversacional
+
+        # Almacén de contrastes asíncronos: { contrast_id: { status, local_answer, discrepancy, ... } }
+        self._contrasts = {}
+        self._contrast_lock = threading.Lock()
 
     # ── Status callback ─────────────────────────────────────────────────────
     def _status(self, msg: str):
@@ -117,15 +127,23 @@ class RAGEngine:
         self._status(f"RAG listo — {len(self._chunks)} chunks, {self._index.ntotal} vectores")
 
     # ── Query (texto → respuesta) ───────────────────────────────────────────
-    def query(self, question: str, debug: bool = False) -> dict:
+    def query(self, question: str, debug: bool = False, use_model: str = None) -> dict:
         """
         Pipeline RAG completo con caché e indicador de confianza.
+        GPT-4.1 es el motor primario. Local se lanza como contraste asíncrono.
+
+        use_model: fuerza un motor específico:
+          - "gpt-4.1" / "gpt-4.1-mini"  → OpenAI directo
+          - "local:xxx"                  → Ollama directo (sin contraste)
+          - None (default)               → OpenAI primario + contraste
 
         Retorna: {
             "answer": str,
             "sources": list[dict],
             "confidence": "alta"|"media"|"baja",
             "cached": bool,
+            "model_used": str,
+            "contrast_id": str|None,
             "debug_chunks": list[str] (solo si debug=True),
             "error": str|None
         }
@@ -133,7 +151,7 @@ class RAGEngine:
         if not self._loaded:
             self.load()
 
-        # 1. Comprobar caché
+        # 1. Comprobar caché (skip si quality == bad)
         cache_key = self._cache_key(question)
         cached = self._cache_get(cache_key)
         if cached:
@@ -175,9 +193,9 @@ class RAGEngine:
         # 4. Construir prompt con historial
         prompt = self._build_prompt(question, context_parts)
 
-        # 5. Generar respuesta
+        # 5. Generar respuesta según motor seleccionado
         self._status(f"Generando respuesta (confianza: {confidence})...")
-        answer = self._call_llm(prompt)
+        answer, model_used = self._call_llm_primary(prompt, use_model)
 
         if answer is None:
             return {
@@ -185,14 +203,24 @@ class RAGEngine:
                 "sources": sources,
                 "confidence": confidence,
                 "cached": False,
+                "model_used": "N/A",
+                "contrast_id": None,
                 "error": "LLM unavailable"
             }
+
+        # 6. Lanzar contraste local asíncrono (solo si la respuesta principal fue OpenAI)
+        contrast_id = None
+        is_openai = model_used.startswith("GPT")
+        if is_openai:
+            contrast_id = self._start_contrast(prompt, answer, question)
 
         result = {
             "answer": answer,
             "sources": sources,
             "confidence": confidence,
             "cached": False,
+            "model_used": model_used,
+            "contrast_id": contrast_id,
             "error": None
         }
 
@@ -200,10 +228,10 @@ class RAGEngine:
         if debug:
             result["debug_chunks"] = context_parts
 
-        # 6. Guardar en caché
+        # 7. Guardar en caché (quality=None = sin evaluar)
         self._cache_set(cache_key, result)
 
-        # 7. Actualizar historial
+        # 8. Actualizar historial
         self._history.append({"q": question, "a": answer[:200]})
         if len(self._history) > 3:
             self._history.pop(0)
@@ -251,11 +279,11 @@ class RAGEngine:
         return f"""Eres un asesor fiscal experto. Basa tu respuesta en el contexto proporcionado.
 
 REGLAS:
-1. Usa la información del contexto para responder. Puedes sintetizar y explicar, pero NO inventes datos, artículos ni procedimientos que no se deriven del contexto.
-2. Si el contexto no tiene información relevante, di: "El contexto no contiene información sobre este tema."
+1. Usa la información del contexto para responder. NO inventes datos, normativas ni supuestos que no se deriven EXPLÍCITAMENTE del contexto.
+2. Si el contexto no tiene información para validar o descartar una afirmación, indica que no hay datos y NO asumas la respuesta.
 3. Cita fuentes y páginas cuando sea posible (ej: "Según el Manual, p.45...").
-4. Responde en español usando el Euro (€).
-5. Si el contexto trata sobre otro país (ej: República Dominicana), indícalo.
+4. Analiza paso a paso cada opción o punto de la pregunta basándote estrictamente en el texto antes de dar una conclusión final.
+5. Responde en español usando el Euro (€).
 6. Sé preciso y directo.
 {history_text}
 CONTEXTO:
@@ -266,35 +294,43 @@ PREGUNTA:
 """
 
     # ── LLM calls ───────────────────────────────────────────────────────────
-    def _call_llm(self, prompt: str) -> str | None:
-        """Intenta modelo local primero. Ejecuta fallback inteligente si la respuesta es evasiva o nula."""
-        answer = self._call_ollama(prompt)
-        
-        # Detectar si el modelo local dio una "no-respuesta" por falta de contexto (usando heurísticas)
-        is_evasive = False
-        if answer:
-            evasive_phrases = ["no contiene información", "no puedo asegurar", "no se especifican detalles", "no se dispone de", "no se menciona"]
-            if any(phrase in answer.lower() for phrase in evasive_phrases):
-                is_evasive = True
-                self._status("Local model lacked confidence, falling back to OpenAI...")
-        
-        if answer and not is_evasive:
-            return answer
+    def _call_llm_primary(self, prompt: str, use_model: str = None) -> tuple[str | None, str]:
+        """
+        Motor primario: GPT-4.1 (OpenAI) por defecto.
+        Si use_model empieza con 'local:', usa Ollama directo.
+        Retorna (answer, model_used_label).
+        """
+        # Forzar modelo local si se solicita
+        if use_model and use_model.startswith("local:"):
+            local_model = use_model.split(":", 1)[1]
+            old = self.llm_model
+            self.llm_model = local_model
+            self._status(f"Usando modelo local: {local_model}")
+            answer = self._call_ollama(prompt)
+            self.llm_model = old
+            return (answer, f"{local_model} (Local)")
 
-        # Fallback a OpenAI
+        # Determinar modelo OpenAI a usar
+        openai_model = use_model if use_model and use_model.startswith("gpt") else self.openai_model
         api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key and OPENAI_AVAILABLE:
-            self._status("Fallback inteligente: consultando a OpenAI (GPT-4o mini)...")
-            openai_answer = self._call_openai(prompt, api_key)
-            if openai_answer:
-                return f"*(Respuesta ampliada mediante OpenAI GPT-4o-mini debido a falta de contexto local)*\n\n{openai_answer}"
-            elif answer: # Si OpenAI falla, devuelve la respuesta evasiva local al menos
-                return answer
 
-        if not answer:
-            self._status("⚠️ Ollama no disponible y OPENAI_API_KEY no configurada")
-        
-        return answer
+        if api_key and OPENAI_AVAILABLE:
+            self._status(f"Consultando {openai_model} (OpenAI)...")
+            answer = self._call_openai(prompt, api_key, model=openai_model)
+            if answer:
+                label = f"GPT-4.1 (OpenAI)" if openai_model == "gpt-4.1" else f"GPT-4.1-mini (OpenAI)"
+                return (answer, label)
+            else:
+                self._status("⚠️ OpenAI falló, intentando fallback local...")
+
+        # Fallback a local si OpenAI no disponible
+        self._status(f"Fallback: usando modelo local {self.llm_model}")
+        answer = self._call_ollama(prompt)
+        if answer:
+            return (answer, f"{self.llm_model} (Local Fallback)")
+
+        self._status("⚠️ Ningún modelo disponible")
+        return (None, "N/A")
 
     def _call_ollama(self, prompt: str) -> str | None:
         url = f"{self.ollama_url}/api/generate"
@@ -310,11 +346,11 @@ PREGUNTA:
             self._status(f"⚠️ Error Ollama: {e}")
             return None
 
-    def _call_openai(self, prompt: str, api_key: str) -> str | None:
+    def _call_openai(self, prompt: str, api_key: str, model: str = None) -> str | None:
         try:
             client = OpenAI(api_key=api_key)
             resp = client.chat.completions.create(
-                model="gpt-4.1-mini",
+                model=model or self.openai_model,
                 messages=[
                     {"role": "system", "content": "Eres un asesor fiscal experto en el sistema tributario español. Responde siempre en español, usando el Euro (€)."},
                     {"role": "user", "content": prompt}
@@ -326,7 +362,92 @@ PREGUNTA:
             self._status(f"⚠️ Error OpenAI: {e}")
             return None
 
-    # ── Caché ───────────────────────────────────────────────────────────────
+    # ── Contraste asíncrono ─────────────────────────────────────────────────
+    def _start_contrast(self, prompt: str, openai_answer: str, question: str) -> str:
+        """Lanza el modelo local en un hilo separado para contrastar."""
+        contrast_id = str(uuid.uuid4())[:8]
+        with self._contrast_lock:
+            self._contrasts[contrast_id] = {
+                "status": "running",
+                "local_answer": None,
+                "discrepancy": None,
+                "question": question,
+            }
+
+        def _run_contrast():
+            try:
+                self._status(f"Contraste local en progreso ({self.llm_model})...")
+                local_answer = self._call_ollama(prompt)
+                discrepancy = self._detect_discrepancy(openai_answer, local_answer)
+                with self._contrast_lock:
+                    self._contrasts[contrast_id].update({
+                        "status": "done",
+                        "local_answer": local_answer,
+                        "discrepancy": discrepancy,
+                    })
+            except Exception as e:
+                with self._contrast_lock:
+                    self._contrasts[contrast_id].update({
+                        "status": "error",
+                        "local_answer": None,
+                        "discrepancy": {"differs": False, "reason": f"Error: {e}"},
+                    })
+
+        thread = threading.Thread(target=_run_contrast, daemon=True)
+        thread.start()
+        return contrast_id
+
+    def get_contrast(self, contrast_id: str) -> dict | None:
+        """Consulta estado de un contraste asíncrono."""
+        with self._contrast_lock:
+            return self._contrasts.get(contrast_id)
+
+    def _detect_discrepancy(self, openai_answer: str, local_answer: str | None) -> dict:
+        """Detecta si las respuestas difieren significativamente."""
+        if not local_answer:
+            return {"differs": False, "reason": "Local no disponible"}
+
+        oa = openai_answer.lower().strip()
+        la = local_answer.lower().strip()
+
+        # 1. Detectar si el local fue evasivo (no tenía info)
+        evasive_phrases = ["no contiene información", "no puedo asegurar",
+                           "no se especifican detalles", "no se dispone de", "no se menciona"]
+        local_evasive = any(p in la for p in evasive_phrases)
+        if local_evasive:
+            return {"differs": False, "reason": "Local fue evasivo (sin contexto suficiente)"}
+
+        # 2. Comparar cifras numéricas mencionadas
+        oa_numbers = set(re.findall(r'\d+[\.,]?\d*', oa))
+        la_numbers = set(re.findall(r'\d+[\.,]?\d*', la))
+        key_oa = {n for n in oa_numbers if len(n) >= 2}
+        key_la = {n for n in la_numbers if len(n) >= 2}
+        if key_oa and key_la:
+            common = key_oa & key_la
+            if len(common) < min(len(key_oa), len(key_la)) * 0.3:
+                return {
+                    "differs": True,
+                    "reason": f"Discrepancia numérica: OpenAI cita {key_oa - common}, Local cita {key_la - common}"
+                }
+
+        # 3. Comparar letras de opción múltiple (A/B/C/D)
+        oa_letter = re.search(r'\b([A-D])\)', oa)
+        la_letter = re.search(r'\b([A-D])\)', la)
+        if oa_letter and la_letter:
+            if oa_letter.group(1) != la_letter.group(1):
+                return {
+                    "differs": True,
+                    "reason": f"OpenAI seleccionó {oa_letter.group(1)}, Local seleccionó {la_letter.group(1)}"
+                }
+
+        # 4. Comparar longitud relativa (si una es muy corta vs la otra)
+        len_ratio = len(la) / max(len(oa), 1)
+        if len_ratio < 0.15:
+            return {"differs": True, "reason": "Local dio respuesta muy breve comparada con OpenAI"}
+
+        return {"differs": False, "reason": "Respuestas consistentes"}
+
+    # ── Caché con retroalimentación de calidad ──────────────────────────────
     def _cache_key(self, question: str) -> str:
         normalized = question.strip().lower()
         return hashlib.md5(normalized.encode()).hexdigest()
@@ -334,16 +455,81 @@ PREGUNTA:
     def _cache_get(self, key: str) -> dict | None:
         try:
             with shelve.open(self.cache_path, 'r') as db:
-                return db.get(key)
+                entry = db.get(key)
+                if entry and entry.get("quality") == "bad":
+                    return None  # No servir respuestas flaggeadas como malas
+                return entry
         except Exception:
             return None
 
     def _cache_set(self, key: str, value: dict):
         try:
+            # Preservar quality si ya existía una evaluación
+            existing_quality = None
+            try:
+                with shelve.open(self.cache_path, 'r') as db:
+                    existing = db.get(key)
+                    if existing:
+                        existing_quality = existing.get("quality")
+            except Exception:
+                pass
+
+            value["quality"] = existing_quality  # None = sin evaluar
             with shelve.open(self.cache_path) as db:
                 db[key] = value
         except Exception as e:
             self._status(f"⚠️ Error guardando caché: {e}")
+
+    def flag_cache(self, question: str, quality: str) -> bool:
+        """
+        Marca una respuesta en caché como 'good' o 'bad'.
+        quality: 'good' | 'bad' | None (reset)
+        """
+        cache_key = self._cache_key(question)
+        try:
+            with shelve.open(self.cache_path) as db:
+                entry = db.get(cache_key)
+                if entry:
+                    entry["quality"] = quality
+                    db[cache_key] = entry
+                    self._status(f"Cache entry flagged as '{quality}'")
+                    return True
+            return False
+        except Exception as e:
+            self._status(f"⚠️ Error flagging cache: {e}")
+            return False
+
+    def get_cache_stats(self) -> dict:
+        """Estadísticas de la caché."""
+        stats = {"total": 0, "good": 0, "bad": 0, "unrated": 0}
+        try:
+            with shelve.open(self.cache_path, 'r') as db:
+                for key in db:
+                    stats["total"] += 1
+                    q = db[key].get("quality")
+                    if q == "good":
+                        stats["good"] += 1
+                    elif q == "bad":
+                        stats["bad"] += 1
+                    else:
+                        stats["unrated"] += 1
+        except Exception:
+            pass
+        return stats
+
+    def clear_bad_cache(self) -> int:
+        """Elimina solo las entradas marcadas como malas. Retorna nro eliminadas."""
+        removed = 0
+        try:
+            with shelve.open(self.cache_path) as db:
+                bad_keys = [k for k in db if db[k].get("quality") == "bad"]
+                for k in bad_keys:
+                    del db[k]
+                    removed += 1
+            self._status(f"🗑️ {removed} respuestas malas eliminadas")
+        except Exception:
+            pass
+        return removed
 
     def clear_cache(self):
         """Limpia toda la caché de respuestas."""

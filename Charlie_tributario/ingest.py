@@ -1,11 +1,15 @@
 """
 ingest.py — Ingesta de documentos PDF tributarios.
 
-Mejoras v2:
+Mejoras v3:
   - Modelo de embedding multilingüe (BAAI/bge-m3)
   - Preserva estructura de párrafos en limpieza
   - Metadata con número de página
   - Auto-descubrimiento de PDFs en el directorio
+  - Chunks más grandes (1000) con mayor overlap (150)
+  - Ingesta de CheatSheets LOCAL + OPENAI
+  - Soporte para archivos .txt y .md adicionales
+  - Separadores semánticos ampliados
 """
 import os
 import re
@@ -18,8 +22,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 
 EMBEDDING_MODEL = "BAAI/bge-m3"
-CHUNK_SIZE = 800
-CHUNK_OVERLAP = 100
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 150
 
 
 def extract_text_with_pages(pdf_path):
@@ -72,7 +76,7 @@ def process_document(pdf_path, source_name):
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", ". ", " "]
+        separators=["\n## ", "\n### ", "\n---\n", "\n# ", "\n\n", "\n", ". ", " "]
     )
     raw_chunks = splitter.split_text(full_text)
 
@@ -113,10 +117,12 @@ def discover_pdfs(directory="."):
 
 
 def process_markdown_cheatsheets():
-    """Procesa los MD de Cheat Sheets generados para inyectarlos al RAG."""
+    """Procesa los MD de Cheat Sheets (OPENAI + LOCAL) para inyectarlos al RAG."""
     chunks = []
     summaries_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "summaries")
+    # Incluir tanto OPENAI como LOCAL
     md_files = glob.glob(os.path.join(summaries_dir, "CheatSheet_OPENAI*.md"))
+    md_files += glob.glob(os.path.join(summaries_dir, "CheatSheet_LOCAL*.md"))
     
     if not md_files:
         return []
@@ -126,7 +132,7 @@ def process_markdown_cheatsheets():
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1200,
         chunk_overlap=200,
-        separators=["\n## ", "\n### ", "\n\n", "\n"]
+        separators=["\n## ", "\n### ", "\n---\n", "\n# ", "\n\n", "\n"]
     )
     
     for md_path in md_files:
@@ -143,6 +149,50 @@ def process_markdown_cheatsheets():
                     "paginas": "Resumen Global"
                 })
                 
+    return chunks
+
+
+def process_extra_documents():
+    """Procesa archivos .txt y .md sueltos en el directorio raíz."""
+    chunks = []
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    extra_files = glob.glob(os.path.join(base_dir, "*.txt"))
+    extra_files += glob.glob(os.path.join(base_dir, "*.md"))
+    
+    # Excluir archivos del propio sistema
+    exclude = {"requirements_rag.txt", "plan_rag_tributario_con_ollama.md", "plan_asistente_fiscal_openai.md"}
+    extra_files = [f for f in extra_files if os.path.basename(f) not in exclude]
+    
+    if not extra_files:
+        return []
+    
+    print(f"\n📄 Procesando {len(extra_files)} documentos extra (.txt/.md)...")
+    
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        separators=["\n## ", "\n### ", "\n---\n", "\n# ", "\n\n", "\n", ". ", " "]
+    )
+    
+    for filepath in extra_files:
+        source_name = os.path.splitext(os.path.basename(filepath))[0]
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                text = f.read()
+        except UnicodeDecodeError:
+            with open(filepath, "r", encoding="latin-1") as f:
+                text = f.read()
+        
+        raw_chunks = splitter.split_text(text)
+        for chunk in raw_chunks:
+            if len(chunk.strip()) > 30:
+                chunks.append({
+                    "texto": chunk.strip(),
+                    "fuente": source_name,
+                    "paginas": "Documento extra"
+                })
+        print(f"   • {source_name}: {len(raw_chunks)} chunks")
+    
     return chunks
 
 
@@ -171,6 +221,12 @@ def main():
     if md_chunks:
         all_chunks.extend(md_chunks)
         print(f"     ✅ {len(md_chunks)} chunks generados desde Cheat Sheets.")
+
+    # 3. Procesar documentos extra (.txt, .md)
+    extra_chunks = process_extra_documents()
+    if extra_chunks:
+        all_chunks.extend(extra_chunks)
+        print(f"     ✅ {len(extra_chunks)} chunks generados desde docs extra.")
 
     if not all_chunks:
         print("❌ No se generaron chunks. Verifica los archivos.")

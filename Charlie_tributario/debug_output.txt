@@ -1,0 +1,107 @@
+--- RESPUESTA ---
+La opción correcta es la **A**.
+
+**Justificación paso a paso según el contexto:**
+
+- **A) Gastos de gasolina de un coche que utiliza principalmente para su actividad, pero también de forma residual para su vida personal.**
+  - Según el contexto: “Para que un vehículo se considere afecto a una actividad económica y pueda amortizarse, debe usarse exclusivamente para la actividad…” (ITB PREGUNTAS FRECUENTES RENTA 2025).
+  - Por tanto, si el coche se usa también para la vida personal, aunque sea de forma residual, **no se considera afecto exclusivamente a la actividad** y sus gastos (como la gasolina) **no son deducibles**.
+
+- **B) La prima de un seguro de enfermedad que contrato con una entidad privada.**
+  - El contexto indica: “En Estimación Directa, independientemente de la actividad, se pueden descontar como gasto las primas de los seguros de enfermedad (seguros médicos) con la limitación de 500 euros anuales…” (Z MANUAL INFORMACIÓN TRIBUTARIA BÁSICA).
+  - Por tanto, **sí es deducible** con el límite indicado.
+
+- **C) La cuota de Seguridad Social que paga como autónomo, si también hace aportaciones a la mutualidad de abogacía.**
+  - El contexto señala: “Los pagos de cotizaciones del Régimen de Autónomos de la Seguridad Social” y “Aportaciones mutualidades alternativas del titular de la actividad…” (Z MANUAL INFORMACIÓN TRIBUTARIA BÁSICA).
+  - No se indica que sean incompatibles, por lo que **ambos gastos son deducibles** si se realizan.
+
+**Conclusión:**  
+La respuesta correcta es la **A**.  
+Los gastos de gasolina de un coche que no está afecto exclusivamente a la actividad **no son deducibles**.  
+(Fuente: ITB PREGUNTAS FRECUENTES RENTA 2025)
+
+--- CHUNKS RECUPERADOS ---
+[Fuente: ITB PREGUNTAS FRECUENTES RENTA 2025 (p.50)]
+• ¿Son deducibles las primas de seguros?
+Las primas de seguros son gasto deducible en la medida que estén relacionadas con la actividad, indicamos
+los más habituales:
+- Las primas de seguros de enfermedad (o de salud) son deducibles hasta 500 € anuales en la casilla de
+gasto “Primas de seguros”, y si cubre a cónyuge e hijos menores de 25 años que convivan con él, 500 € por
+cada uno de ellos. Este límite será de 1.500 € cuando la persona tenga discapacidad acreditada (INFORMA
+135564).
+- Los seguros de responsabilidad civil de médicos, arquitectos y otros, van como gasto de primas de
+seguros (siempre que ejerza por cuenta propia, ya que por cuenta ajena no son deducibles).
+- Los seguros de elementos afectos a la actividad sí son deducibles, por ejemplo, seguros del local.
+NOTA: los seguros de vida NO son gasto deducible de la actividad.
+• Ejerzo la actividad en una local propiedad común de mi cónyuge y mío, ¿qué porcentaje puedo descontar
+de los gastos?
+
+[Fuente: ITB PREGUNTAS FRECUENTES RENTA 2025]
+ya que el programa no lo vuelca directamente.
+• ¿Puedo deducir las cuotas satisfechas a colegios profesionales?
+Si es trabajador por cuenta ajena, solo si la colegiación es obligatoria para el desempeño del trabajo, en la parte
+que corresponda a los fines esenciales de estas instituciones, con el límite de 500 € anuales. Si es para el
+desarrollo de una actividad en estimación directa, sí será un gasto de dicha actividad.
+• ¿Puedo deducirme algo de los gastos de abogados que he tenido por un litigio con mi empresa?
+Sí. En el apartado de rendimientos de trabajo, en cualquiera de las casillas, se abre el mismo desplegable
+donde se incorpora: “Gastos defensa jurídica” con el límite de 300 €. Únicamente es aplicable en el año al que
+corresponda la factura.
+• Soy médico por cuenta ajena y tengo obligación de tener un seguro de responsabilidad civil ¿Puedo
+deducirlo?
+En rendimientos de trabajo no se puede deducir este seguro, tendría que desarrollar la actividad por cuenta
+
+[Fuente: ITB PREGUNTAS FRECUENTES RENTA 2025]
+de recarga de dichos vehículos. (INFORMA 147451)
+• ¿Puedo descontar los gastos de gasolina, reparaciones, y seguro de mi vehículo?
+Los gastos del vehículo son deducibles si el vehículo está afecto a la actividad económica.
+• ¿Puedo descontar mis gastos de comidas dentro de mi actividad económica?
+
+[Fuente: Z MANUAL INFORMACIÓN TRIBUTARIA BÁSICA (RD) ]
+• Seguridad Social del titular de la actividad: Los pagos de cotizaciones del Régimen
+de Autónomos de la Seguridad Social.
+• Aportaciones mutualidades alternativas del titular de la actividad: cuando el titular
+de la actividad en vez de cotizar al RETA de la Seguridad Social, cotiza a una mutualidad
+alternativa. Por ejemplo, un abogado cuando no cotiza al RETA y sí a la Mutualidad de
+Abogacía.
+• Arrendamientos y cánones: el ejemplo más habitual es el pago del alquiler del local
+donde se ejerce la actividad.
+• Suministros: son los gastos de consumos de luz, agua... del local donde se ejerce la
+actividad. Hay una limitación de estos gastos cuando la actividad se ejerce en una zona
+de la vivienda habitual del titular de la actividad.
+• Servicios profesionales independientes: aquellos servicios contratados no
+específicos de la actividad, pero vinculados a la misma.
+• Primas de Seguros: seguros vinculados directamente con la actividad (seguros de
+
+[Fuente: ITB PREGUNTAS FRECUENTES RENTA 2025]
+• Ejerzo la actividad en una local propiedad común de mi cónyuge y mío, ¿qué porcentaje puedo descontar
+de los gastos?
+El titular de la actividad puede deducir los gastos al 100% del local si es común del matrimonio.
+• ¿Puedo deducir gastos de suministros de mi vivienda habitual, en la que ejerzo mi actividad?
+Puede deducir un 30% del porcentaje de afectación de la vivienda habitual a la actividad económica de los
+suministros compartidos. Se declaran en la casilla “Suministros (luz, agua, gas, telefonía e Internet)”.
+(INFORMA 140190).
+Ejemplo: si tengo afecto el 40% de la vivienda, y los suministros son de 1.000 €, me deduciré el 30% del 40%
+de 1.000 €, es decir 120 €.
+• ¿Me puedo deducir la compra de un coche para mi actividad?
+Para que un vehículo se considere afecto a una actividad económica y pueda amortizarse, debe usarse
+exclusivamente para la actividad (en IVA es diferente).
+Como excepción se pueden amortizar los siguientes vehículos siempre que su uso fuera de la actividad sea
+
+[Fuente: Z MANUAL INFORMACIÓN TRIBUTARIA BÁSICA (RD) ]
+positiva entre los ingresos y gastos reflejados anteriormente, con el límite de 2.000 euros.
+Por último, los gastos indicados van a depender de la naturaleza de la actividad, por ejemplo, no
+va a tener los mismos tipos de gastos un abogado que un albañil. Si un abogado adquiere
+cemento, no es un gasto propio de su actividad, en cambio en la actividad de albañilería sí es
+deducible este gasto.
+En el programa el desglose de los gastos es el siguiente:
+MANUAL INFORMACIÓN TRIBUTARIA BÁSICA
+
+[Fuente: Z MANUAL INFORMACIÓN TRIBUTARIA BÁSICA (RD) ]
+específicos de la actividad, pero vinculados a la misma.
+• Primas de Seguros: seguros vinculados directamente con la actividad (seguros de
+responsabilidad civil, seguros del local...). En Estimación Directa, independientemente
+de la actividad, se pueden descontar como gasto las primas de los seguros de
+enfermedad (seguros médicos) con la limitación de 500 euros anuales, incrementándose
+a 1.500 si tiene discapacidad. También se puede descontar con este límite las primas
+MANUAL INFORMACIÓN TRIBUTARIA BÁSICA
+

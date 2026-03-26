@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-width=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Charlie Tributario AI</title>
     <!-- Usar Markdown Parser ligero -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -22,6 +22,18 @@
         </div>
     </div>
 
+    <!-- Toast de contraste -->
+    <div id="contrast-toast" class="contrast-toast hidden">
+        <div class="contrast-toast-content">
+            <span class="contrast-toast-icon">⚠️</span>
+            <div class="contrast-toast-text">
+                <strong>Discrepancia detectada</strong>
+                <p id="contrast-toast-detail"></p>
+            </div>
+            <button class="contrast-toast-close" id="contrast-toast-close">✕</button>
+        </div>
+    </div>
+
     <div class="app-container">
         <!-- Header -->
         <header class="app-header">
@@ -30,6 +42,7 @@
                 <h1>Charlie Tributario</h1>
             </div>
             <div class="controls">
+                <span id="server-status" class="status-dot online" title="Servidor conectado"></span>
                 <span id="confidence-badge" class="badge">N/A</span>
                 <span class="settings-btn" id="settings-toggle">⚙️ Settings</span>
                 <span class="settings-btn" id="clear-btn">🗑️ Limpiar</span>
@@ -38,12 +51,18 @@
 
         <!-- Settings Panel -->
         <div id="settings-panel" class="settings-panel hidden">
-            <label for="model-select">Modelo Local (Ollama):</label>
+            <label for="model-select">Motor de respuesta:</label>
             <select id="model-select">
-                <option value="qwen2.5:3b">qwen2.5:3b (Rápido)</option>
-                <option value="llama3.2:3b">llama3.2:3b</option>
-                <option value="qwen2.5vl:3b">qwen2.5vl (Visión)</option>
+                <option value="gpt-4.1" selected>GPT-4.1 + RAG (OpenAI) ⭐</option>
+                <option value="gpt-4.1-mini">GPT-4.1-mini (OpenAI)</option>
+                <option value="local:qwen2.5:3b">qwen2.5:3b (Local)</option>
+                <option value="local:llama3.2:3b">llama3.2:3b (Local)</option>
+                <option value="local:qwen2.5vl:3b">qwen2.5vl (Local/Visión)</option>
             </select>
+            <div class="cache-controls">
+                <span id="cache-stats" class="cache-stats-label"></span>
+                <button class="cache-btn" id="clear-bad-btn" title="Elimina solo respuestas marcadas como malas">🧹 Limpiar malas</button>
+            </div>
         </div>
 
         <!-- Ventana de Chat -->

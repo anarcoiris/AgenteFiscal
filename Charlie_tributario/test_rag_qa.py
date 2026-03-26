@@ -123,6 +123,15 @@ PREGUNTAS_TEST = [
         },
         "correcta": "B",
     },
+    {
+        "pregunta": "¿Cuál de los siguientes gastos no es deducible para un abogado que presta servicios por cuenta propia?",
+        "opciones": {
+            "A": "Gastos de gasolina de un coche que utiliza principalmente para su actividad, pero también de forma residual para su vida personal.",
+            "B": "La prima de un seguro de enfermedad que contrato con una entidad privada.",
+            "C": "La cuota de Seguridad Social que paga como autónomo, si también hace aportaciones a la mutualidad de abogacía.",
+        },
+        "correcta": "A",
+    },
 ]
 
 

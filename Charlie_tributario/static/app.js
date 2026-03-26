@@ -8,34 +8,126 @@ document.addEventListener('DOMContentLoaded', () => {
     const confBadge = document.getElementById('confidence-badge');
     const modelSelect = document.getElementById('model-select');
     const clearBtn = document.getElementById('clear-btn');
+    const statusDot = document.getElementById('server-status');
+    const contrastToast = document.getElementById('contrast-toast');
+    const contrastToastDetail = document.getElementById('contrast-toast-detail');
+    const contrastToastClose = document.getElementById('contrast-toast-close');
+    const clearBadBtn = document.getElementById('clear-bad-btn');
+    const cacheStatsLabel = document.getElementById('cache-stats');
 
-    // Inicializar Configs
+    // ── Config Init ─────────────────────────────────────────────────────────
     fetch('/api/config')
         .then(res => res.json())
         .then(data => {
             if (data.current_model) {
-                modelSelect.value = data.current_model;
+                // Intentar seleccionar el modelo actual
+                const opt = modelSelect.querySelector(`option[value="${data.current_model}"]`);
+                if (opt) modelSelect.value = data.current_model;
+            }
+            if (!data.openai_available) {
+                // Si OpenAI no disponible, marcar las opciones
+                modelSelect.querySelectorAll('option[value^="gpt"]').forEach(opt => {
+                    opt.textContent += ' (sin API key)';
+                });
             }
         });
 
+    // Cargar stats de caché
+    refreshCacheStats();
+
+    // ── Health Check (cada 15s) ─────────────────────────────────────────────
+    async function checkHealth() {
+        try {
+            const res = await fetch('/api/health', { signal: AbortSignal.timeout(3000) });
+            if (res.ok) {
+                statusDot.className = 'status-dot online';
+                statusDot.title = 'Servidor conectado';
+            } else { throw new Error(); }
+        } catch {
+            statusDot.className = 'status-dot offline';
+            statusDot.title = 'Servidor desconectado';
+        }
+    }
+    checkHealth();
+    setInterval(checkHealth, 15000);
+
+    // ── Cache Stats ─────────────────────────────────────────────────────────
+    async function refreshCacheStats() {
+        try {
+            const res = await fetch('/api/cache/stats');
+            const data = await res.json();
+            if (data.success) {
+                cacheStatsLabel.textContent = `📦 ${data.total} en caché (👍${data.good} 👎${data.bad})`;
+            }
+        } catch { /* silent */ }
+    }
+
+    clearBadBtn.addEventListener('click', async () => {
+        const res = await fetch('/api/cache/clear-bad', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            clearBadBtn.textContent = `✅ ${data.removed} eliminadas`;
+            setTimeout(() => clearBadBtn.textContent = '🧹 Limpiar malas', 2000);
+            refreshCacheStats();
+        }
+    });
+
+    // ── UI Toggles ──────────────────────────────────────────────────────────
     settingsToggle.addEventListener('click', () => {
         settingsPanel.classList.toggle('hidden');
+        if (!settingsPanel.classList.contains('hidden')) refreshCacheStats();
     });
 
     clearBtn.addEventListener('click', async () => {
-        await fetch('/api/clear', { method: 'POST' });
-        chatWindow.innerHTML = `<div class="message charlie">
-                <div class="bubble">Historial limpiado. ¿En qué más te puedo ayudar?</div>
-            </div>`;
+        await fetch('/api/clear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clear_cache: false })
+        });
+        chatWindow.innerHTML = `<div class="message charlie"><div class="bubble">Historial limpiado. ¿En qué más te puedo ayudar?</div></div>`;
     });
 
-    // Auto-resize textarea
+    // ── Toast de contraste ──────────────────────────────────────────────────
+    contrastToastClose.addEventListener('click', () => {
+        contrastToast.classList.add('hidden');
+    });
+
+    function showContrastToast(reason) {
+        contrastToastDetail.textContent = reason;
+        contrastToast.classList.remove('hidden');
+        // Auto-ocultar después de 15s
+        setTimeout(() => contrastToast.classList.add('hidden'), 15000);
+    }
+
+    // ── Polling de contraste ────────────────────────────────────────────────
+    function pollContrast(contrastId) {
+        if (!contrastId) return;
+
+        const poll = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/contrast/${contrastId}`);
+                const data = await res.json();
+
+                if (data.status === 'done') {
+                    clearInterval(poll);
+                    if (data.discrepancy && data.discrepancy.differs) {
+                        showContrastToast(data.discrepancy.reason);
+                    }
+                } else if (data.status === 'error') {
+                    clearInterval(poll);
+                }
+            } catch {
+                clearInterval(poll);
+            }
+        }, 3000); // Poll cada 3s
+    }
+
+    // ── Textarea auto-resize + Enter ────────────────────────────────────────
     chatInput.addEventListener('input', function() {
         this.style.height = '50px';
         this.style.height = (this.scrollHeight) + 'px';
     });
 
-    // Handling Enter to send
     chatInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -48,61 +140,136 @@ document.addEventListener('DOMContentLoaded', () => {
         sendMessage();
     });
 
-    async function sendMessage(textOverride = null, imageHTML = null) {
+    // ── Core: Send Message ──────────────────────────────────────────────────
+    let lastQuestion = ''; // Para feedback
+
+    async function sendMessage(textOverride = null) {
         const textStr = (typeof textOverride === 'string') ? textOverride : null;
         const text = textStr || chatInput.value.trim();
-        if (!text && !imageHTML) return;
+        if (!text) return;
 
-        // Añadir mensaje del usuario
-        let userBubbleContent = '';
-        if (imageHTML) userBubbleContent += imageHTML;
-        if (text) userBubbleContent += `<p>${text}</p>`;
-
-        addMessage('user', userBubbleContent, true);
+        lastQuestion = text;
+        addMessage('user', `<p>${escapeHtml(text)}</p>`);
         chatInput.value = '';
         chatInput.style.height = '50px';
 
-        // Añadir loader de Charlie
         const loaderId = 'loader-' + Date.now();
-        addMessage('charlie', `<div class="typing-indicator" id="${loaderId}"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>`, true);
+        addMessage('charlie', `<div class="typing-indicator" id="${loaderId}"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>`);
 
         try {
-            const formData = {
-                message: text,
-                model: modelSelect.value
-            };
-
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData)
+                body: JSON.stringify({ message: text, model: modelSelect.value })
             });
 
             const data = await response.json();
-            
-            // Eliminar loader
-            const loaderEl = document.getElementById(loaderId);
-            if(loaderEl) loaderEl.closest('.message').remove();
+            removeLoader(loaderId);
 
             if (data.success) {
-                // Parse markdown
-                const parsedText = marked.parse(data.answer);
-                addMessage('charlie', parsedText, true);
+                const answerHTML = marked.parse(data.answer || '');
+                const metaHTML = buildMetaHTML(data, text);
+                const sourcesHTML = buildSourcesHTML(data.sources);
+                const suggestionsHTML = buildSuggestionsHTML(data.sources);
 
-                // Update badge
-                confBadge.textContent = "Conf: " + (data.confidence || "N/A").toUpperCase();
-                confBadge.className = 'badge ' + data.confidence;
+                addMessage('charlie', answerHTML + metaHTML + sourcesHTML + suggestionsHTML);
+
+                // Update confidence badge
+                confBadge.textContent = (data.confidence || 'N/A').toUpperCase();
+                confBadge.className = 'badge ' + (data.confidence || '');
+
+                // Iniciar polling de contraste si aplica
+                if (data.contrast_id) {
+                    pollContrast(data.contrast_id);
+                }
+
+                // Refrescar stats
+                refreshCacheStats();
             } else {
-                addMessage('charlie', `<p style="color:#ff7b72;">Error: ${data.error}</p>`, true);
+                addMessage('charlie', `<p style="color:#ff7b72;">Error: ${data.error}</p>`);
             }
         } catch (err) {
-            const loaderEl = document.getElementById(loaderId);
-            if(loaderEl) loaderEl.closest('.message').remove();
-            addMessage('charlie', `<p style="color:#ff7b72;">Error de conexión.</p>`, true);
+            removeLoader(loaderId);
+            addMessage('charlie', `<p style="color:#ff7b72;">Error de conexión al servidor.</p>`);
         }
     }
 
-    function addMessage(sender, htmlContent, scrollToBottom = true) {
+    // ── Build: Response Metadata (model tag + timer + copy + feedback) ──────
+    function buildMetaHTML(data, question) {
+        const isFallback = (data.model_used || '').includes('Fallback');
+        const isOpenAI = (data.model_used || '').includes('OpenAI');
+        const modelClass = isFallback ? 'model-tag fallback' : (isOpenAI ? 'model-tag openai' : 'model-tag');
+        const elapsed = data.elapsed_seconds ? `⏱️ ${data.elapsed_seconds}s` : '';
+        const cachedTag = data.cached ? '<span class="cached-tag">⚡ CACHÉ</span>' : '';
+        const copyId = 'copy-' + Date.now();
+        const fbId = 'fb-' + Date.now();
+        const escapedQ = escapeHtml(question).replace(/"/g, '&quot;');
+
+        return `
+        <div class="response-meta">
+            <span class="${modelClass}">${data.model_used || 'Local'}</span>
+            <span>${elapsed}</span>
+            ${cachedTag}
+            <button class="copy-btn" id="${copyId}" title="Copiar respuesta">📋 Copiar</button>
+            <span class="feedback-buttons" id="${fbId}" data-question="${escapedQ}">
+                <button class="fb-btn fb-good" data-quality="good" title="Buena respuesta">👍</button>
+                <button class="fb-btn fb-bad" data-quality="bad" title="Mala respuesta">👎</button>
+            </span>
+        </div>`;
+    }
+
+    // ── Build: Source References ─────────────────────────────────────────────
+    function buildSourcesHTML(sources) {
+        if (!sources || sources.length === 0) return '';
+
+        // De-duplicate sources
+        const seen = new Set();
+        const unique = [];
+        for (const s of sources) {
+            const key = `${s.fuente}|${s.paginas}`;
+            if (!seen.has(key)) { seen.add(key); unique.push(s); }
+        }
+
+        let items = '';
+        for (const s of unique) {
+            const relevance = Math.max(0, Math.min(100, Math.round((1 - s.distancia) * 100)));
+            const barColor = relevance > 70 ? '#3fb950' : relevance > 40 ? '#d29922' : '#da3633';
+            items += `
+            <li class="source-item">
+                <span class="source-pill">📄 ${s.fuente}</span>
+                <span>${s.paginas || ''}</span>
+                <span class="dist-bar"><span class="dist-bar-fill" style="width:${relevance}%;background:${barColor}"></span></span>
+                <span>${relevance}%</span>
+            </li>`;
+        }
+
+        return `
+        <details class="sources-block">
+            <summary>📚 ${unique.length} fuente(s) consultada(s)</summary>
+            <ul class="source-list">${items}</ul>
+        </details>`;
+    }
+
+    // ── Build: Suggested Questions ──────────────────────────────────────────
+    function buildSuggestionsHTML(sources) {
+        if (!sources || sources.length === 0) return '';
+
+        const suggestions = [
+            '¿Qué deducciones puedo aplicar en mi declaración?',
+            '¿Cuándo tengo obligación de declarar?',
+            '¿Cómo se compensan las pérdidas patrimoniales?'
+        ];
+
+        let btns = '';
+        for (const q of suggestions) {
+            btns += `<button class="suggestion-btn" data-question="${escapeHtml(q)}">${q}</button>`;
+        }
+
+        return `<div class="suggestions">${btns}</div>`;
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function addMessage(sender, htmlContent) {
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${sender}`;
         const bubble = document.createElement('div');
@@ -110,34 +277,82 @@ document.addEventListener('DOMContentLoaded', () => {
         bubble.innerHTML = htmlContent;
         msgDiv.appendChild(bubble);
         chatWindow.appendChild(msgDiv);
-
-        if (scrollToBottom) {
-            chatWindow.scrollTop = chatWindow.scrollHeight;
-        }
+        chatWindow.scrollTop = chatWindow.scrollHeight;
     }
 
-    // Drag & Drop / Paste Handling for OCR
+    function removeLoader(loaderId) {
+        const el = document.getElementById(loaderId);
+        if (el) el.closest('.message').remove();
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // ── Delegated Events (Copy + Suggestions + Feedback) ────────────────────
+    chatWindow.addEventListener('click', async (e) => {
+        // Copy button
+        if (e.target.classList.contains('copy-btn')) {
+            const bubble = e.target.closest('.bubble');
+            if (bubble) {
+                const clone = bubble.cloneNode(true);
+                clone.querySelectorAll('.response-meta, .sources-block, .suggestions').forEach(el => el.remove());
+                navigator.clipboard.writeText(clone.textContent.trim());
+                e.target.textContent = '✅ Copiado';
+                setTimeout(() => e.target.textContent = '📋 Copiar', 2000);
+            }
+        }
+
+        // Feedback buttons (👍/👎)
+        if (e.target.classList.contains('fb-btn')) {
+            const quality = e.target.dataset.quality;
+            const container = e.target.closest('.feedback-buttons');
+            const question = container?.dataset.question;
+
+            if (question) {
+                try {
+                    await fetch('/api/feedback', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ question, quality })
+                    });
+
+                    // Feedback visual
+                    container.querySelectorAll('.fb-btn').forEach(btn => {
+                        btn.disabled = true;
+                        btn.classList.remove('fb-active');
+                    });
+                    e.target.classList.add('fb-active');
+                    e.target.classList.add(quality === 'good' ? 'fb-active-good' : 'fb-active-bad');
+
+                    refreshCacheStats();
+                } catch { /* silent */ }
+            }
+        }
+
+        // Suggestion buttons
+        if (e.target.classList.contains('suggestion-btn')) {
+            const question = e.target.dataset.question;
+            if (question) {
+                chatWindow.querySelectorAll('.suggestions').forEach(el => el.remove());
+                sendMessage(question);
+            }
+        }
+    });
+
+    // ── Drag & Drop / Paste for OCR ─────────────────────────────────────────
     let dragCounter = 0;
-    
-    document.addEventListener('dragenter', (e) => {
-        e.preventDefault();
-        dragCounter++;
-        dropOverlay.classList.remove('hidden');
-    });
 
-    document.addEventListener('dragleave', (e) => {
-        e.preventDefault();
-        dragCounter--;
-        if (dragCounter === 0) dropOverlay.classList.add('hidden');
-    });
-
+    document.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; dropOverlay.classList.remove('hidden'); });
+    document.addEventListener('dragleave', (e) => { e.preventDefault(); dragCounter--; if (dragCounter === 0) dropOverlay.classList.add('hidden'); });
     document.addEventListener('dragover', (e) => { e.preventDefault(); });
 
     document.addEventListener('drop', (e) => {
         e.preventDefault();
         dragCounter = 0;
         dropOverlay.classList.add('hidden');
-        
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
             handleImageUpload(e.dataTransfer.files[0]);
         }
@@ -154,51 +369,33 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     async function handleImageUpload(file) {
-        if (!file.type.startsWith('image/')) {
-            alert('Por favor, sube solo imágenes.');
-            return;
-        }
+        if (!file.type.startsWith('image/')) { alert('Solo imágenes.'); return; }
 
-        // Preview local
         const reader = new FileReader();
-        reader.onload = async (e) => {
-            const imgHTML = `<img src="${e.target.result}" class="upload-image-preview" /><br>`;
-            
-            // UI Feedback
-            const loaderId = 'loader-ocr-' + Date.now();
-            addMessage('user', imgHTML, true);
-            addMessage('charlie', `<div class="typing-indicator" id="${loaderId}"><div class="dot"></div><div class="dot"></div><div class="dot"></div><p style="margin-left:10px;font-size:0.8rem;">Leyendo imagen (OCR)...</p></div>`, true);
+        reader.onload = async (ev) => {
+            const imgHTML = `<img src="${ev.target.result}" class="upload-image-preview" />`;
+            addMessage('user', imgHTML);
 
-            // Subir a OCR
+            const loaderId = 'loader-ocr-' + Date.now();
+            addMessage('charlie', `<div class="typing-indicator" id="${loaderId}"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span style="margin-left:8px;font-size:0.8rem">Leyendo imagen (OCR)...</span></div>`);
+
             const formData = new FormData();
             formData.append('file', file);
 
             try {
-                const res = await fetch('/api/ocr', {
-                    method: 'POST',
-                    body: formData
-                });
+                const res = await fetch('/api/ocr', { method: 'POST', body: formData });
                 const data = await res.json();
-                
-                const loaderEl = document.getElementById(loaderId);
-                if(loaderEl) loaderEl.closest('.message').remove();
+                removeLoader(loaderId);
 
                 if (data.success && data.text) {
-                    // Auto-enviar la pregunta con el texto OCR
-                    const ocrMsg = `[Texto extraído por OCR de la captura]:\n"${data.text}"\n\nAnaliza este texto fiscal.`;
-                    
-                    // Mostramos la respuesta directa en Charlie como confirmación de lectura, o lanzamos al chat
-                    addMessage('charlie', `<p><i>✅ He leído el texto de la imagen:</i></p><blockquote style="border-left: 3px solid #58a6ff; padding-left:10px; margin: 10px 0; color:#8b949e;">${data.text.substring(0,200)}...</blockquote><p>Analizando...</p>`, true);
-                    
-                    // Ahora mandamos el texto de la imagen como query
-                    await sendMessage(ocrMsg); 
+                    addMessage('charlie', `<p><i>✅ Texto extraído:</i></p><blockquote>${escapeHtml(data.text.substring(0, 300))}${data.text.length > 300 ? '...' : ''}</blockquote><p>Analizando...</p>`);
+                    await sendMessage(`[Texto extraído por OCR]:\n"${data.text}"\n\nAnaliza este texto fiscal.`);
                 } else {
-                    addMessage('charlie', `<p style="color:#d29922;">No pude leer texto claro en esa imagen.</p>`, true);
+                    addMessage('charlie', `<p style="color:#d29922;">No pude leer texto claro en esa imagen.</p>`);
                 }
-            } catch (err) {
-                const loaderEl = document.getElementById(loaderId);
-                if(loaderEl) loaderEl.closest('.message').remove();
-                addMessage('charlie', `<p style="color:#ff7b72;">Fallo al procesar la imagen (Servidor ocupado o error OCR).</p>`, true);
+            } catch {
+                removeLoader(loaderId);
+                addMessage('charlie', `<p style="color:#ff7b72;">Error al procesar la imagen.</p>`);
             }
         };
         reader.readAsDataURL(file);
