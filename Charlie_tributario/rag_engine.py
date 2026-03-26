@@ -449,7 +449,13 @@ PREGUNTA:
 
     # ── Caché con retroalimentación de calidad ──────────────────────────────
     def _cache_key(self, question: str) -> str:
-        normalized = question.strip().lower()
+        try:
+            mtime = os.path.getmtime(self.chunks_path)
+            version_str = str(mtime)
+        except OSError:
+            version_str = "v1"
+            
+        normalized = f"{question.strip().lower()}||{version_str}"
         return hashlib.md5(normalized.encode()).hexdigest()
 
     def _cache_get(self, key: str) -> dict | None:

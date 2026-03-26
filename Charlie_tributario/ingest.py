@@ -81,6 +81,7 @@ def process_document(pdf_path, source_name):
     raw_chunks = splitter.split_text(full_text)
 
     chunks = []
+    current_page = 1
     for chunk_text in raw_chunks:
         # Extraer números de página presentes en este chunk
         page_numbers = re.findall(r'<<<PAGE_(\d+)>>', chunk_text)
@@ -90,13 +91,15 @@ def process_document(pdf_path, source_name):
         if not clean_chunk or len(clean_chunk) < 20:
             continue
 
-        page_range = ""
         if page_numbers:
             pages = sorted(set(int(p) for p in page_numbers))
+            current_page = pages[-1]
             if len(pages) == 1:
                 page_range = f"p.{pages[0]}"
             else:
                 page_range = f"pp.{pages[0]}-{pages[-1]}"
+        else:
+            page_range = f"p.{current_page}"
 
         chunks.append({
             "texto": clean_chunk,
@@ -108,8 +111,8 @@ def process_document(pdf_path, source_name):
 
 
 def discover_pdfs(directory="."):
-    """Auto-descubre todos los PDFs en el directorio."""
-    pdfs = glob.glob(os.path.join(directory, "*.pdf"))
+    """Auto-descubre todos los PDFs en el directorio y subcarpetas."""
+    pdfs = glob.glob(os.path.join(directory, "**", "*.pdf"), recursive=True)
     print(f"📂 PDFs encontrados: {len(pdfs)}")
     for p in pdfs:
         print(f"   • {os.path.basename(p)} ({os.path.getsize(p) / 1024:.0f} KB)")
